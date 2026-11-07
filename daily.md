@@ -1,0 +1,1 @@
+- 2026-11-07 — Once — run a handler a single time (`demos/2026-11-07_once.md`)

@@ -1,0 +1,39 @@
+name: Daily demo
+
+on:
+  schedule:
+    # 00:07 UTC daily — offset from :00 to avoid the post-midnight burst
+    - cron: '7 0 * * *'
+  workflow_dispatch:     # run manually from the Actions tab
+
+permissions:
+  contents: write
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Node (for the demo generator)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Generate today's demo
+        run: node tools/generate-demo.mjs
+
+      - name: Commit and push
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor.id }}+${{ github.actor }}@users.noreply.github.com"
+          git add demos/ daily.md
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          DATE=$(date -u +%F)
+          git commit -m "demo $DATE ($(date -u +%H:%M) UTC)"
+          git push
