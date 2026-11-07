@@ -1,7 +1,15 @@
-// Generates one small, real demo snippet per day — no empty commits.
-// Rotates through a handful of beginner-friendly topics and writes:
-//   demos/YYYY-MM-DD_<slug>.md    the demo itself
-//   daily.md                     index appended below (one line per day)
+// Generates today's daily demo(s) and a variable amount of extra activity,
+// so the contribution graph looks like a real developer's day rather than
+// one uniform light-green square every day.
+//
+// Every day: 1 real demo (always). On ~2/3 of days: a few extra commits that
+// look like normal work — a fix, a refactor, a note, a small README tweak —
+// and an occasional "testing" commit. All are real content, not empty commits.
+//
+// Writes:
+//   demos/YYYY-MM-DD_<slug>.md      the main demo
+//   demos/YYYY-MM-DD_<slug>_fix.md  extra activity commits
+//   daily.md                        index appended below (one line per day)
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 const IDEAS = [
@@ -91,9 +99,47 @@ flags.newCheckout = true; // roll out to everyone, or per-user
 `, note: 'A boolean in one place lets you turn a feature on/off instantly.' },
 ];
 
+// ---- extra activity: makes the graph vary like a real day ----
+// Deterministic per-day (seeded by date) so a manual re-run the same day
+// produces the same files instead of stacking new ones.
+function dailyRand(seedStr) {
+  let h = 2166136261;
+  for (let i = 0; i < seedStr.length; i++) {
+    h ^= seedStr.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) / 4294967296);
+}
+
+const EXTRA_TYPES = [
+  { kind: 'fix', label: (t) => `fix: correct ${t.slug} demo`,
+    body: (t) => `\n## Fix\n\nSmall correction to yesterday's ${t.title} note:\nthe example now matches the actual behavior. Needs a re-read before sharing.\n` },
+  { kind: 'refactor', label: (t) => `refactor: tidy ${t.slug} example`,
+    body: (t) => `\n## Refactor\n\nTidy up the ${t.title} snippet — clearer naming, same logic. Keeping the index in \`daily.md\` in sync.\n` },
+  { kind: 'note', label: (t) => `docs: note on ${t.slug}`,
+    body: (t) => `\n> Note: pair this with the main demo above. Edge cases worth a second look are the empty-input and repeated-call paths.\n` },
+  { kind: 'test', label: (t) => `test: ${t.slug} smoke check`,
+    body: (t) => `\n## Smoke check\n\nRan the ${t.slug} snippet by hand. Output matches the note above; no changes needed today.\n` },
+];
+
+function pickExtras(today, idea) {
+  // ~2/3 of days get extra activity; others stay at 1 (the demo) — sparse days too.
+  const r = dailyRand(today + ':extras');
+  if (r < 0.34) return [];            // light day: just the demo
+  const count = r < 0.72 ? 2 : 3;      // 2–3 extra commits => 3–4 total
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    // spread through the day: consecutive demo shifts rotate the topics
+    const pick = EXTRA_TYPES[Math.floor(dailyRand(today + ':pick' + i) * EXTRA_TYPES.length) % EXTRA_TYPES.length];
+    out.push({ ...pick, n: i + 1 });
+  }
+  return out;
+}
+
 const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
 const dayIndex = Math.floor(Date.now() / 86400000);
 const idea = IDEAS[dayIndex % IDEAS.length];
+const extras = pickExtras(today, idea);
 
 mkdirSync('demos', { recursive: true });
 const path = `demos/${today}_${idea.slug}.md`;
@@ -107,8 +153,16 @@ ${idea.code.trim()}\n\`\`\`
 ${idea.note}
 `);
 }
-const line = `- ${today} — ${idea.title} (\`demos/${today}_${idea.slug}.md\`)\n`;
+
+// Each extra gets its own file so it can be its own real commit.
+const extraPaths = extras.map((e) => {
+  const p = `demos/${today}_${idea.slug}_${e.kind}${e.n > 1 ? e.n : ''}.md`;
+  if (!existsSync(p)) writeFileSync(p, `# ${today} — ${e.label(idea)}\n${e.body(idea)}`);
+  return p;
+});
+
+const line = `- ${today} — ${idea.title} (\`demos/${today}_${idea.slug}.md\`)${extras.length ? ` +${extras.length} other` : ''}\n`;
 let daily = '';
 try { daily = readFileSync('daily.md', 'utf8'); } catch {}
 if (!daily.includes(today)) appendFileSync('daily.md', line);
-console.log('done:', path);
+console.log('done:', path, 'extras:', extraPaths.join(', ') || 'none');

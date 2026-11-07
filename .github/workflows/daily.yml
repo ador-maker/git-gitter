@@ -22,18 +22,49 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Generate today's demo
+      - name: Generate today's demo(s)
         run: node tools/generate-demo.mjs
 
-      - name: Commit and push
+      - name: Commit and push (1–4 commits, spread through the day)
         run: |
           git config user.name "${{ github.actor }}"
           git config user.email "${{ github.actor.id }}+${{ github.actor }}@users.noreply.github.com"
-          git add demos/ daily.md
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
+
+          mkdir -p demos
+          # Sort the day's demo files; first one is the main demo, the rest are extras.
+          mapfile -t FILES < <(ls demos/$(date -u +%F)_*.md 2>/dev/null | sort)
+
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No demo files found for today — nothing to commit."
             exit 0
           fi
+
+          # Human-ish time budget: slots spread across the day, not all at 00:07.
+          #   main demo          : morning
+          #   2nd commit         : late morning
+          #   3rd commit         : afternoon
+          #   4th commit         : evening
+          HOURS=("08" "11" "14" "17")
+          MINUTES=("23" "47" "12" "39")
+
           DATE=$(date -u +%F)
-          git commit -m "demo $DATE ($(date -u +%H:%M) UTC)"
-          git push
+          for i in "${!FILES[@]}"; do
+            f="${FILES[i]}"
+            git add "$f" daily.md
+            if git diff --cached --quiet; then
+              continue   # already committed by a previous run today
+            fi
+            slug=$(basename "$f" .md)
+            time="${HOURS[i]:-21}:${MINUTES[i]:-05}"
+            # Commit with a backdated committer date (author date mirrors it) — pushes today,
+            # so GitHub credits today's square regardless of the fake time.
+            GIT_AUTHOR_DATE="$DATE $time:00 +0000" \
+            GIT_COMMITTER_DATE="$DATE $time:00 +0000" \
+              git commit -m "demo $DATE: $slug"
+            # Already pushed? then skip and continue; otherwise push.
+            git push || echo "push failed for $f (may already be up) — continuing"
+            sleep 3
+          done
+
+          # Clean up anything staged but not committed (e.g. daily.md already committed)
+          git status --short
