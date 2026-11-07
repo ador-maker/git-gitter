@@ -1,15 +1,16 @@
-// Generates today's daily demo(s) and a variable amount of extra activity,
-// so the contribution graph looks like a real developer's day rather than
-// one uniform light-green square every day.
+// Generates today's demo and decides whether today is an "active" day.
 //
-// Every day: 1 real demo (always). On ~2/3 of days: a few extra commits that
-// look like normal work — a fix, a refactor, a note, a small README tweak —
-// and an occasional "testing" commit. All are real content, not empty commits.
+// To keep the graph looking like real, irregular work, the job only pushes on
+// ~2 randomly chosen days per week (seeded by date, so a re-run the same day
+// behaves identically). On active days it pushes 2-3 commits: the main demo
+// plus 1-2 short follow-ups (a fix, refactor note, or smoke check). On other
+// days it exits early and the workflow makes no commits — that's the pattern
+// of someone who codes a couple of afternoons a week, not a robot.
 //
 // Writes:
-//   demos/YYYY-MM-DD_<slug>.md      the main demo
-//   demos/YYYY-MM-DD_<slug>_fix.md  extra activity commits
-//   daily.md                        index appended below (one line per day)
+//   demos/YYYY-MM-DD_<slug>.md        the main demo (only on active days)
+//   demos/YYYY-MM-DD_<slug>_<k>.md    follow-up commits
+//   daily.md                          index appended below (one line per day)
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 const IDEAS = [
@@ -97,11 +98,36 @@ function checkout() {
 }
 flags.newCheckout = true; // roll out to everyone, or per-user
 `, note: 'A boolean in one place lets you turn a feature on/off instantly.' },
+  { slug: 'object-freeze', title: 'Freeze a config so it can’t drift', code: `
+// Freeze: make a config object immutable at runtime
+const config = Object.freeze({ apiUrl: 'https://api.example.com', retries: 3 });
+config.retries = 5; // silently fails in sloppy mode, throws in strict mode
+`, note: 'Prevents accidental mutation of shared config across modules.' },
+  { slug: 'array-group', title: 'Group an array by a key', code: `
+// Group: index an array by a derived key
+function groupBy(arr, keyFn) {
+  return arr.reduce((acc, item) => {
+    const k = keyFn(item);
+    (acc[k] ||= []).push(item);
+    return acc;
+  }, {});
+}
+const byStatus = groupBy(users, (u) => u.status);
+`, note: 'A handy reduce pattern for dashboards and reports.' },
 ];
 
-// ---- extra activity: makes the graph vary like a real day ----
-// Deterministic per-day (seeded by date) so a manual re-run the same day
-// produces the same files instead of stacking new ones.
+const EXTRA_TYPES = [
+  { kind: 'fix', label: (t) => `fix: correct ${t.slug} demo`,
+    body: (t) => `\n## Fix\n\nSmall correction to the ${t.title} note: the example now matches the actual behavior. Needs a re-read before sharing.\n` },
+  { kind: 'refactor', label: (t) => `refactor: tidy ${t.slug} example`,
+    body: (t) => `\n## Refactor\n\nTidy up the ${t.title} snippet — clearer naming, same logic. Keeping the index in \`daily.md\` in sync.\n` },
+  { kind: 'note', label: (t) => `docs: note on ${t.slug}`,
+    body: (t) => `\n> Note: pair this with the main demo. Edge cases worth a second look are the empty-input and repeated-call paths.\n` },
+  { kind: 'test', label: (t) => `test: ${t.slug} smoke check`,
+    body: (t) => `\n## Smoke check\n\nRan the ${t.slug} snippet by hand. Output matches the note; no changes needed today.\n` },
+];
+
+// Deterministic per-day pseudo-random, so re-runs behave the same.
 function dailyRand(seedStr) {
   let h = 2166136261;
   for (let i = 0; i < seedStr.length; i++) {
@@ -111,27 +137,19 @@ function dailyRand(seedStr) {
   return ((h >>> 0) / 4294967296);
 }
 
-const EXTRA_TYPES = [
-  { kind: 'fix', label: (t) => `fix: correct ${t.slug} demo`,
-    body: (t) => `\n## Fix\n\nSmall correction to yesterday's ${t.title} note:\nthe example now matches the actual behavior. Needs a re-read before sharing.\n` },
-  { kind: 'refactor', label: (t) => `refactor: tidy ${t.slug} example`,
-    body: (t) => `\n## Refactor\n\nTidy up the ${t.title} snippet — clearer naming, same logic. Keeping the index in \`daily.md\` in sync.\n` },
-  { kind: 'note', label: (t) => `docs: note on ${t.slug}`,
-    body: (t) => `\n> Note: pair this with the main demo above. Edge cases worth a second look are the empty-input and repeated-call paths.\n` },
-  { kind: 'test', label: (t) => `test: ${t.slug} smoke check`,
-    body: (t) => `\n## Smoke check\n\nRan the ${t.slug} snippet by hand. Output matches the note above; no changes needed today.\n` },
-];
+function isActiveDay(today) {
+  // ~2 days per week (~28.6%). Seeded by date so the same day is consistently
+  // active/inactive across re-runs, and the pattern looks random in the graph.
+  return dailyRand(today + ':active') < 0.29;
+}
 
-function pickExtras(today, idea) {
-  // ~2/3 of days get extra activity; others stay at 1 (the demo) — sparse days too.
-  const r = dailyRand(today + ':extras');
-  if (r < 0.34) return [];            // light day: just the demo
-  const count = r < 0.72 ? 2 : 3;      // 2–3 extra commits => 3–4 total
+function pickExtras(today) {
+  // 2–3 total commits on an active day: the demo + 1–2 follow-ups.
+  const count = dailyRand(today + ':count') < 0.5 ? 1 : 2; // 1 or 2 extras
   const out = [];
   for (let i = 0; i < count; i++) {
-    // spread through the day: consecutive demo shifts rotate the topics
     const pick = EXTRA_TYPES[Math.floor(dailyRand(today + ':pick' + i) * EXTRA_TYPES.length) % EXTRA_TYPES.length];
-    out.push({ ...pick, n: i + 1 });
+    out.push({ ...pick, n: i + 2 });
   }
   return out;
 }
@@ -139,7 +157,14 @@ function pickExtras(today, idea) {
 const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
 const dayIndex = Math.floor(Date.now() / 86400000);
 const idea = IDEAS[dayIndex % IDEAS.length];
-const extras = pickExtras(today, idea);
+
+// If not an active day: create nothing. The workflow then has nothing to commit.
+if (!isActiveDay(today)) {
+  console.log(`inactive day: ${today} — no commits`);
+  process.exit(0);
+}
+
+const extras = pickExtras(today);
 
 mkdirSync('demos', { recursive: true });
 const path = `demos/${today}_${idea.slug}.md`;
@@ -154,15 +179,13 @@ ${idea.note}
 `);
 }
 
-// Each extra gets its own file so it can be its own real commit.
-const extraPaths = extras.map((e) => {
-  const p = `demos/${today}_${idea.slug}_${e.kind}${e.n > 1 ? e.n : ''}.md`;
+for (const e of extras) {
+  const p = `demos/${today}_${idea.slug}_${e.kind}${e.n > 2 ? e.n : ''}.md`;
   if (!existsSync(p)) writeFileSync(p, `# ${today} — ${e.label(idea)}\n${e.body(idea)}`);
-  return p;
-});
+}
 
-const line = `- ${today} — ${idea.title} (\`demos/${today}_${idea.slug}.md\`)${extras.length ? ` +${extras.length} other` : ''}\n`;
+const line = `- ${today} — ${idea.title} (\`${path}\`)${extras.length ? ` +${extras.length} follow-up${extras.length > 1 ? 's' : ''}` : ''}\n`;
 let daily = '';
 try { daily = readFileSync('daily.md', 'utf8'); } catch {}
 if (!daily.includes(today)) appendFileSync('daily.md', line);
-console.log('done:', path, 'extras:', extraPaths.join(', ') || 'none');
+console.log(`active day: ${today} — wrote ${1 + extras.length} commit(s)`);

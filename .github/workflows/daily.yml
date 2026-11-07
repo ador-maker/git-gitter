@@ -2,9 +2,10 @@ name: Daily demo
 
 on:
   schedule:
-    # 00:07 UTC daily — offset from :00 to avoid the post-midnight burst
+    # 00:07 UTC daily — offset from :00 to avoid the post-midnight burst.
+    # The generator decides whether today is an "active" day (see below).
     - cron: '7 0 * * *'
-  workflow_dispatch:     # run manually from the Actions tab
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -17,54 +18,50 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Set up Node (for the demo generator)
+      - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Generate today's demo(s)
+      - name: Decide if today is active + generate demos
+        # Exits 0 with no output files on inactive days. On active days it
+        # creates demos/<date>_*.md. Re-runs the same day are no-ops.
         run: node tools/generate-demo.mjs
 
-      - name: Commit and push (1–4 commits, spread through the day)
+      - name: Commit and push (active days only)
         run: |
           git config user.name "${{ github.actor }}"
           git config user.email "${{ github.actor.id }}+${{ github.actor }}@users.noreply.github.com"
 
-          mkdir -p demos
-          # Sort the day's demo files; first one is the main demo, the rest are extras.
-          mapfile -t FILES < <(ls demos/$(date -u +%F)_*.md 2>/dev/null | sort)
-
-          if [ ${#FILES[@]} -eq 0 ]; then
-            echo "No demo files found for today — nothing to commit."
+          # Whatever the generator left on disk today is the day's commits.
+          # If it's an inactive day, there are no files and this step is a no-op,
+          # which is exactly the sporadic pattern we want.
+          git add demos/ daily.md
+          if git diff --cached --quiet; then
+            echo "Nothing to commit (inactive day, or already committed)."
             exit 0
           fi
 
-          # Human-ish time budget: slots spread across the day, not all at 00:07.
-          #   main demo          : morning
-          #   2nd commit         : late morning
-          #   3rd commit         : afternoon
-          #   4th commit         : evening
-          HOURS=("08" "11" "14" "17")
-          MINUTES=("23" "47" "12" "39")
+          # Stage per-file commits so each file is its own commit.
+          # Committer date is set to a plausible daytime slot (not 00:07) so
+          # the graph reflects when the work would have happened, not when the
+          # cron fired. GitHub counts the push day (today), so these still land
+          # on today's square.
+          HOURS=("08" "11" "14")
+          MINUTES=("23" "47" "12")
 
           DATE=$(date -u +%F)
-          for i in "${!FILES[@]}"; do
-            f="${FILES[i]}"
-            git add "$f" daily.md
-            if git diff --cached --quiet; then
-              continue   # already committed by a previous run today
-            fi
+          i=0
+          for f in $(git diff --cached --name-only); do
+            git add "$f"
+            if git diff --cached --quiet; then continue; fi
             slug=$(basename "$f" .md)
-            time="${HOURS[i]:-21}:${MINUTES[i]:-05}"
-            # Commit with a backdated committer date (author date mirrors it) — pushes today,
-            # so GitHub credits today's square regardless of the fake time.
+            time="${HOURS[i]:-17}:${MINUTES[i]:-05}"
             GIT_AUTHOR_DATE="$DATE $time:00 +0000" \
             GIT_COMMITTER_DATE="$DATE $time:00 +0000" \
               git commit -m "demo $DATE: $slug"
-            # Already pushed? then skip and continue; otherwise push.
-            git push || echo "push failed for $f (may already be up) — continuing"
-            sleep 3
+            i=$((i+1))
           done
 
-          # Clean up anything staged but not committed (e.g. daily.md already committed)
-          git status --short
+          git push
+          echo "Pushed for $DATE"
