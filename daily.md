@@ -1,1 +1,2 @@
 - 2026-11-07 — Once — run a handler a single time (`demos/2026-11-07_once.md`)
+- 2026-11-11 — Freeze a config so it can’t drift (`demos/2026-11-11_object-freeze.md`) +1 follow-up
