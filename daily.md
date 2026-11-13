@@ -1,3 +1,4 @@
 - 2026-11-07 — Once — run a handler a single time (`demos/2026-11-07_once.md`)
 - 2026-11-11 — Freeze a config so it can’t drift (`demos/2026-11-11_object-freeze.md`) +1 follow-up
 - 2026-11-12 — Group an array by a key (`demos/2026-11-12_array-group.md`) +2 follow-ups
+- 2026-11-13 — Debounce a search box (`demos/2026-11-13_debounce.md`) +2 follow-ups
