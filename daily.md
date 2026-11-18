@@ -3,3 +3,4 @@
 - 2026-11-12 — Group an array by a key (`demos/2026-11-12_array-group.md`) +2 follow-ups
 - 2026-11-13 — Debounce a search box (`demos/2026-11-13_debounce.md`) +2 follow-ups
 - 2026-11-15 — Memoize an expensive call (`demos/2026-11-15_memoize.md`) +2 follow-ups
+- 2026-11-18 — Add jitter to backoff (`demos/2026-11-18_retry-jitter.md`) +1 follow-up
