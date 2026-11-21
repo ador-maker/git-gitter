@@ -6,3 +6,4 @@
 - 2026-11-18 — Add jitter to backoff (`demos/2026-11-18_retry-jitter.md`) +1 follow-up
 - 2026-11-19 — Wait for all, keep the failures (`demos/2026-11-19_promise-all-settled.md`) +1 follow-up
 - 2026-11-20 — Flip a feature flag locally (`demos/2026-11-20_version-flag.md`) +2 follow-ups
+- 2026-11-21 — Freeze a config so it can’t drift (`demos/2026-11-21_object-freeze.md`) +1 follow-up
